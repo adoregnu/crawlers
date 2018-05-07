@@ -3,15 +3,18 @@
 import re
 import os
 import sys
+import glob
 import time
 import pprint
 import requests
 import collections
+import traceback
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait # available since 2.4.0
 from selenium.webdriver.support import expected_conditions as EC # available since 2.26.0
+from selenium.common.exceptions import TimeoutException
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -19,17 +22,24 @@ from watchdog.events import FileSystemEventHandler
 class DownloadCompleteEvent(FileSystemEventHandler):
     _complete = False
     def on_moved(self, event):
-        print('download complete :' + event.dest_path)
+        print(event.dest_path + ' downloaded')
         self._complete = True
 
     def is_complete(self):
         return self._complete
 
-class ThzCrawling:
+class ThzCrawler:
+    BASE_URL = 'http://taohuabt.cc/'
+    MAX_PAGE = 1
+    MAX_RETRY = 5
+    DOWNLOAD_TIMEOUT_SEC = 5.0
+
     _boardName = '.'
-    _printOnly = False
     _chrome = None
-    _baseUrl = 'http://taohuabt.cc/'
+
+    _printOnly = False # do not download actual file
+    _stopOnFirstArticle = False # process only one article per each page
+
     def __init__(self):
         options = webdriver.ChromeOptions()
         options.add_argument('headless')
@@ -72,17 +82,32 @@ class ThzCrawling:
         num = 0
         for img in imgs:
             url = img.get_attribute('file')
+            #print(url)
             if 'thzimg' not in url and 'thzpic' not in url:
                 continue
 
             path = '{0}/{1}_{2}{3}'.format(self.GetPath(pid), pid, num, os.path.splitext(url)[1])
-            print(url, path)
-            if self._printOnly: continue
-
-            with open(path, 'wb') as f:
-               f.write(requests.get(url).content)
-
             num += 1
+
+            if self._printOnly:
+                continue
+            if os.path.exists(path) :
+                continue
+
+            numRetry = 0 
+            while numRetry < self.MAX_RETRY:
+                try:
+                    res = requests.get(url)
+                    with open(path, 'wb') as f:
+                       f.write(res.content)
+                    break
+                except :
+                    print('timeout!! retry{0} to save image :{1}'.format(numRetry, url))
+
+                numRetry += 1
+
+            if numRetry < self.MAX_RETRY:
+                print(path + ' saved')
     
     def SaveTorrentFile(self, pid, tlink):
         #print(tlink.text, tlink.get_attribute('href'))
@@ -92,9 +117,12 @@ class ThzCrawling:
         #print(dnlink.text, dnlink.get_attribute('href'))
 
         targetPath = self.GetPath(pid)
-        #destFile = '{0}/{1}'.format(targetPath, tlink.text)
-        print(targetPath)
-        if self._printOnly: return
+        #print('{0}/{1}'.format(targetPath, tlink.text))
+        if self._printOnly:
+            return
+
+        if glob.glob(targetPath + '/*.torrent') :
+            return
 
         self.SetDownloadDir(targetPath)
         dnlink.click()
@@ -104,17 +132,16 @@ class ThzCrawling:
         observer.schedule(evt, path = targetPath)
         observer.start()
 
-        maxTime = 5.0
-        while not evt.is_complete() and maxTime > 0.0:
+        elapsed = 0.0
+        while not evt.is_complete() and self.DOWNLOAD_TIMEOUT_SEC > elapsed:
             time.sleep(0.2)
-            maxTime -= 0.2
+            elapsed += 0.2
 
     def ProcessThreadList(self, items, splitFn):
         urls = collections.OrderedDict()
         for tbody in items:
             link = tbody.find_element_by_css_selector('a.s.xst')
             pid, title = splitFn(link.text) 
-            #print('pid:{0}, title:{1}'.format(pid, title))
             if not pid or not title:
                 break
 
@@ -122,35 +149,43 @@ class ThzCrawling:
                 em_a = tbody.find_element_by_xpath('tr/th/em/a')
                 pid = '{0}-{1}'.format(em_a.text, title.replace(' ', '_'))
 
-            urls[pid] = link.get_attribute('href')
+            urls[pid] = (link.get_attribute('href'), title)
 
         pprint.pprint(urls)
         print('')
 
         num = 0
         for pid, href in urls.items():
-            if not self.CheckDir(pid): continue 
+            self.CheckDir(pid)
 
-            print(pid, href)
-            self._chrome.get(href)
+            print(pid, href[1])
+            self._chrome.get(href[0])
             self.WaitElementLocate(By.ID, 'scrolltop')
 
             imgList = self._chrome.find_elements_by_css_selector('img[id*=aimg_]')
             #pprint.pprint(imgList)
             self.SaveImages(pid, imgList)
 
-            tlinks = self._chrome.find_elements_by_partial_link_text('.torrent')
-            for tlink in tlinks:
-                self.SaveTorrentFile(pid, tlink)
+            numRetry = 0 
+            while numRetry < self.MAX_RETRY:
+                try:
+                    tlinks = self._chrome.find_elements_by_partial_link_text('.torrent')
+                    for tlink in tlinks:
+                        self.SaveTorrentFile(pid, tlink)
+                    break
+                except TimeoutException:
+                    print('timeout!! retry({0}) to download {1}'.format(numRetry, pid))
+                numRetry += 1
 
-            break
+            if self._stopOnFirstArticle:
+                break
 
     def ProcessBoard(self, board, title):
         self._boardName = board
         nextLink = title['href']
 
         pageNum = 1
-        while pageNum < 2:
+        while pageNum <= self.MAX_PAGE:
             print(nextLink)
             self._chrome.get(nextLink)
 
@@ -169,7 +204,7 @@ class ThzCrawling:
         sys.exit(0)
 
     def Start(self):
-        self._chrome.get(self._baseUrl + 'forum.php')
+        self._chrome.get(self.BASE_URL + 'forum.php')
 
         def splitSensoredTitle(text):
             search = re.search('\[(.*)\](.*)', text)
@@ -192,14 +227,14 @@ class ThzCrawling:
                 'name' : '亚洲有碼原創', 
                 'href' : '',
                 'splitter' : splitSensoredTitle },
-            'UnsensoredJAV' : {
-                'name' : '亚洲無碼原創',
-                'href' : '',
-                'splitter' : splitUnsensoredTitle }, 
-            'UnsensoredWestern' : { 
-                'name' : '欧美無碼', 
-                'href' : '',
-                'splitter' : splitWesternTitle }
+#            'UnsensoredJAV' : {
+#                'name' : '亚洲無碼原創',
+#                'href' : '',
+#                'splitter' : splitUnsensoredTitle }, 
+#            'UnsensoredWestern' : { 
+#                'name' : '欧美無碼', 
+#                'href' : '',
+#                'splitter' : splitWesternTitle }
         }
 
         try:
@@ -210,11 +245,12 @@ class ThzCrawling:
             for board, title in boardList.items():
                 self.ProcessBoard(board, title)
         except:
-                print(sys.exc_info())
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            traceback.print_exception(exc_type, exc_value, exc_tb)
         finally:
             self.Exit();
 
 if __name__ == '__main__':
 
-    thz = ThzCrawling()
+    thz = ThzCrawler()
     thz.Start()
