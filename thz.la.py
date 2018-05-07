@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-### parser.py
+### thz.la.py
 import re
 import os
 import sys
@@ -26,6 +26,8 @@ class DownloadCompleteEvent(FileSystemEventHandler):
         return self._complete
 
 class ThzCrawling:
+    _boardName = '.'
+    _printOnly = False
     _chrome = None
     _baseUrl = 'http://taohuabt.cc/'
     def __init__(self):
@@ -55,9 +57,13 @@ class ThzCrawling:
                 EC.element_to_be_clickable((by, locate))
         )
 
+    def GetPath(self, pid):
+        return '{0}/{1}/{2}'.format(os.getcwd(), self._boardName, pid)
+
     def CheckDir(self, pid):
+        path = self.GetPath(pid)
         try: 
-            os.mkdir(pid)
+            os.makedirs(path)
         except OSError:
             return False
         return True
@@ -66,11 +72,13 @@ class ThzCrawling:
         num = 0
         for img in imgs:
             url = img.get_attribute('file')
-            if 'thumbsnap' in url:
+            if 'thzimg' not in url and 'thzpic' not in url:
                 continue
 
-            path = '{0}/{1}_{2}{3}'.format(pid, pid, num, os.path.splitext(url)[1])
+            path = '{0}/{1}_{2}{3}'.format(self.GetPath(pid), pid, num, os.path.splitext(url)[1])
             print(url, path)
+            if self._printOnly: continue
+
             with open(path, 'wb') as f:
                f.write(requests.get(url).content)
 
@@ -83,16 +91,17 @@ class ThzCrawling:
         dnlink = self.WaitElementClickable(By.PARTIAL_LINK_TEXT, '立即下载附件')
         #print(dnlink.text, dnlink.get_attribute('href'))
 
-        downloadPath = os.getcwd() + '/' + pid
-        destFile = '{0}/{1}'.format(downloadPath, tlink.text)
-        print(downloadPath, destFile)
+        targetPath = self.GetPath(pid)
+        #destFile = '{0}/{1}'.format(targetPath, tlink.text)
+        print(targetPath)
+        if self._printOnly: return
 
-        self.SetDownloadDir(downloadPath)
+        self.SetDownloadDir(targetPath)
         dnlink.click()
 
         observer = Observer()
         evt = DownloadCompleteEvent()
-        observer.schedule(evt, path = downloadPath)
+        observer.schedule(evt, path = targetPath)
         observer.start()
 
         maxTime = 5.0
@@ -104,12 +113,14 @@ class ThzCrawling:
         urls = collections.OrderedDict()
         for tbody in items:
             link = tbody.find_element_by_css_selector('a.s.xst')
-            #print(link.text)
-
             pid, title = splitFn(link.text) 
             #print('pid:{0}, title:{1}'.format(pid, title))
             if not pid or not title:
                 break
+
+            if self._boardName == 'UnsensoredWestern':
+                em_a = tbody.find_element_by_xpath('tr/th/em/a')
+                pid = '{0}-{1}'.format(em_a.text, title.replace(' ', '_'))
 
             urls[pid] = link.get_attribute('href')
 
@@ -132,8 +143,11 @@ class ThzCrawling:
             for tlink in tlinks:
                 self.SaveTorrentFile(pid, tlink)
 
-    def ProcessBoard(self, title, splitFn):
-        nextLink = self._chrome.find_element_by_link_text(title).get_attribute('href')
+            break
+
+    def ProcessBoard(self, board, title):
+        self._boardName = board
+        nextLink = title['href']
 
         pageNum = 1
         while pageNum < 2:
@@ -144,7 +158,7 @@ class ThzCrawling:
             nextLink = self.WaitElementLocate(By.LINK_TEXT, '下一页').get_attribute('href')
             elms = self._chrome.find_elements_by_css_selector('tbody[id*=normalthread_]')
             #pprint.pprint(xlist)
-            self.ProcessThreadList(elms, splitFn)
+            self.ProcessThreadList(elms, title['splitter'])
 
             pageNum += 1
             print('')
@@ -169,14 +183,32 @@ class ThzCrawling:
             search = re.search('.* ([\w\-].*?) (.*)', text, re.ASCII)
             return search.group(1), search.group(2)
 
+        def splitWesternTitle(text):
+            search = re.search('(.*?) (.*)', text, re.ASCII)
+            return search.group(1), search.group(2)
+
         boardList = { 
-#            '亚洲有碼原創' : splitSensoredTitle,
-            '亚洲無碼原創' : splitUnsensoredTitle
+            'SensoredJAV' : { 
+                'name' : '亚洲有碼原創', 
+                'href' : '',
+                'splitter' : splitSensoredTitle },
+            'UnsensoredJAV' : {
+                'name' : '亚洲無碼原創',
+                'href' : '',
+                'splitter' : splitUnsensoredTitle }, 
+            'UnsensoredWestern' : { 
+                'name' : '欧美無碼', 
+                'href' : '',
+                'splitter' : splitWesternTitle }
         }
 
         try:
-            for title, splitter in boardList.items():
-                self.ProcessBoard(title, splitter)
+            for board, title in boardList.items():
+                name = self._chrome.find_element_by_link_text(title['name'])
+                title['href'] = name.get_attribute('href')
+
+            for board, title in boardList.items():
+                self.ProcessBoard(board, title)
         except:
                 print(sys.exc_info())
         finally:
