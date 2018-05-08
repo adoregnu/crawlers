@@ -12,8 +12,10 @@ import traceback
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait # available since 2.4.0
-from selenium.webdriver.support import expected_conditions as EC # available since 2.26.0
+# available since 2.4.0
+from selenium.webdriver.support.ui import WebDriverWait
+# available since 2.26.0
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
 from watchdog.observers import Observer
@@ -36,7 +38,7 @@ class ThzCrawler:
 
     _boardName = '.'
     _chrome = None
-
+    _date = None
     _printOnly = False # do not download actual file
     _stopOnFirstArticle = False # process only one article per each page
 
@@ -54,7 +56,10 @@ class ThzCrawler:
         #add missing support for chrome "send_command"  to selenium webdriver
         self._chrome.command_executor._commands["send_command"] = ("POST", '/session/$sessionId/chromium/send_command')
 
-        params = {'cmd': 'Page.setDownloadBehavior', 'params': {'behavior': 'allow', 'downloadPath': path}}
+        params = {
+            'cmd': 'Page.setDownloadBehavior',
+            'params': {'behavior': 'allow', 'downloadPath': path}
+        }
         self._chrome.execute("send_command", params)
 
     def WaitElementLocate(self, by, locate):
@@ -68,7 +73,11 @@ class ThzCrawler:
         )
 
     def GetPath(self, pid):
-        return '{0}/{1}/{2}'.format(os.getcwd(), self._boardName, pid)
+        if self._date:
+            return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._boardName, self._date, pid)
+        else:
+            return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._boardName, pid)
+
 
     def CheckDir(self, pid):
         path = self.GetPath(pid)
@@ -86,7 +95,8 @@ class ThzCrawler:
             if 'thzimg' not in url and 'thzpic' not in url:
                 continue
 
-            path = '{0}/{1}_{2}{3}'.format(self.GetPath(pid), pid, num, os.path.splitext(url)[1])
+            path = '{0}/{1}_{2}{3}'.format(
+                    self.GetPath(pid), pid, num, os.path.splitext(url)[1])
             num += 1
 
             if self._printOnly:
@@ -137,6 +147,35 @@ class ThzCrawler:
             time.sleep(0.2)
             elapsed += 0.2
 
+    def ProcessOnePage(self, pid, href):
+
+        print(pid, href[1])
+        self._chrome.get(href[0])
+        self.WaitElementLocate(By.ID, 'scrolltop')
+
+        imgList = self._chrome.find_elements_by_css_selector('img[id*=aimg_]')
+
+        td = imgList[0].find_element_by_xpath(".//ancestor::td");
+        if self._boardName == 'SensoredJAV':
+            search = re.findall('([0-9/]{10})', td.text, re.ASCII)
+            self._date = search[len(search) - 1].replace('/', '-')
+
+        #pprint.pprint(imgList)
+        self.CheckDir(pid)
+        self.SaveImages(pid, imgList)
+
+        numRetry = 0
+        while numRetry < self.MAX_RETRY:
+            try:
+                tlinks = self._chrome.find_elements_by_partial_link_text('.torrent')
+                for tlink in tlinks:
+                    self.SaveTorrentFile(pid, tlink)
+                break
+            except TimeoutException:
+                print('timeout!! retry({0}) to download {1}'.format(numRetry, pid))
+            numRetry += 1
+
+
     def ProcessThreadList(self, items, splitFn):
         urls = collections.OrderedDict()
         for tbody in items:
@@ -156,27 +195,8 @@ class ThzCrawler:
 
         num = 0
         for pid, href in urls.items():
-            self.CheckDir(pid)
 
-            print(pid, href[1])
-            self._chrome.get(href[0])
-            self.WaitElementLocate(By.ID, 'scrolltop')
-
-            imgList = self._chrome.find_elements_by_css_selector('img[id*=aimg_]')
-            #pprint.pprint(imgList)
-            self.SaveImages(pid, imgList)
-
-            numRetry = 0 
-            while numRetry < self.MAX_RETRY:
-                try:
-                    tlinks = self._chrome.find_elements_by_partial_link_text('.torrent')
-                    for tlink in tlinks:
-                        self.SaveTorrentFile(pid, tlink)
-                    break
-                except TimeoutException:
-                    print('timeout!! retry({0}) to download {1}'.format(numRetry, pid))
-                numRetry += 1
-
+            self.ProcessOnePage(pid, href)
             if self._stopOnFirstArticle:
                 break
 
