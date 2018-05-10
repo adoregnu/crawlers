@@ -10,6 +10,8 @@ import requests
 import collections
 import traceback
 
+from enum import Enum
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 # available since 2.4.0
@@ -20,6 +22,11 @@ from selenium.common.exceptions import TimeoutException
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+
+class Board(Enum):
+    SensoredJAV       = 1
+    UnsensoredJAV     = 2
+    UnsensoredWestern = 3
 
 class DownloadCompleteEvent(FileSystemEventHandler):
     _complete = False
@@ -36,11 +43,12 @@ class ThzCrawler:
     MAX_RETRY = 5
     DOWNLOAD_TIMEOUT_SEC = 5.0
 
-    _boardName = '.'
+    _board = '.'
     _chrome = None
     _date = None
     _printOnly = False # do not download actual file
     _stopOnFirstArticle = False # process only one article per each page
+    _stopOnExistingDir = True # stop download if it's already exists
 
     def __init__(self):
         options = webdriver.ChromeOptions()
@@ -74,12 +82,12 @@ class ThzCrawler:
 
     def GetPath(self, pid):
         if self._date:
-            return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._boardName, self._date, pid)
+            return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._board.name, self._date, pid)
         else:
-            return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._boardName, pid)
+            return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._board.name, pid)
 
 
-    def CheckDir(self, pid):
+    def CreateDir(self, pid):
         path = self.GetPath(pid)
         try: 
             os.makedirs(path)
@@ -149,19 +157,23 @@ class ThzCrawler:
 
     def ProcessOnePage(self, pid, href):
 
-        print(pid, href[1])
+        print('Processing [{0}], title:[{1}]'.format(pid, href[1]))
         self._chrome.get(href[0])
         self.WaitElementLocate(By.ID, 'scrolltop')
 
         imgList = self._chrome.find_elements_by_css_selector('img[id*=aimg_]')
-
         td = imgList[0].find_element_by_xpath(".//ancestor::td");
-        if self._boardName == 'SensoredJAV':
+        search = None
+        if self._board is Board.SensoredJAV :
             search = re.findall('([0-9/]{10})', td.text, re.ASCII)
-            self._date = search[len(search) - 1].replace('/', '-')
+        else: 
+            search = re.findall('([0-9\-]{10})', td.text, re.ASCII)
 
-        #pprint.pprint(imgList)
-        self.CheckDir(pid)
+        self._date = search[len(search) - 1].replace('/', '-') if search else None
+
+        if not self.CreateDir(pid) and self._stopOnExistingDir:
+            return False
+
         self.SaveImages(pid, imgList)
 
         numRetry = 0
@@ -174,7 +186,7 @@ class ThzCrawler:
             except TimeoutException:
                 print('timeout!! retry({0}) to download {1}'.format(numRetry, pid))
             numRetry += 1
-
+        return True
 
     def ProcessThreadList(self, items, splitFn):
         urls = collections.OrderedDict()
@@ -184,24 +196,26 @@ class ThzCrawler:
             if not pid or not title:
                 break
 
-            if self._boardName == 'UnsensoredWestern':
+            if self._board is Board.UnsensoredWestern:
                 em_a = tbody.find_element_by_xpath('tr/th/em/a')
                 pid = '{0}-{1}'.format(em_a.text, title.replace(' ', '_'))
 
             urls[pid] = (link.get_attribute('href'), title)
+            print('pid:[{0}], title:[{1}]'.format(pid, title))
 
-        pprint.pprint(urls)
-        print('')
+        #pprint.pprint(urls)
 
         num = 0
         for pid, href in urls.items():
 
-            self.ProcessOnePage(pid, href)
+            if not self.ProcessOnePage(pid, href):
+                print('latest update, skip {0}'.format(self._board.name))
+                break
             if self._stopOnFirstArticle:
                 break
 
     def ProcessBoard(self, board, title):
-        self._boardName = board
+        self._board = board
         nextLink = title['href']
 
         pageNum = 1
@@ -235,26 +249,27 @@ class ThzCrawler:
             #2018-05-03 050218_680-1pon モデルコレクション 渋谷ひとみ
             #2018-05-04 [女体のしんぴ] nyoshin_n1677 めい
             #'?' after '*' means non-greedy matching
-            search = re.search('.* ([\w\-].*?) (.*)', text, re.ASCII)
-            return search.group(1), search.group(2)
+            search = re.search('(.*?) ([\w\-].*?) (.*)', text, re.ASCII)
+            return search.group(2), search.group(3)
 
         def splitWesternTitle(text):
             search = re.search('(.*?) (.*)', text, re.ASCII)
             return search.group(1), search.group(2)
 
+        #test  = { Board.SensoredJAV,  'test' }
         boardList = { 
-            'SensoredJAV' : { 
+            Board.SensoredJAV : { 
                 'name' : '亚洲有碼原創', 
                 'href' : '',
                 'splitter' : splitSensoredTitle },
-#            'UnsensoredJAV' : {
-#                'name' : '亚洲無碼原創',
-#                'href' : '',
-#                'splitter' : splitUnsensoredTitle }, 
-#            'UnsensoredWestern' : { 
-#                'name' : '欧美無碼', 
-#                'href' : '',
-#                'splitter' : splitWesternTitle }
+            Board.UnsensoredJAV : {
+                'name' : '亚洲無碼原創',
+                'href' : '',
+                'splitter' : splitUnsensoredTitle }, 
+            Board.UnsensoredWestern : { 
+                'name' : '欧美無碼', 
+                'href' : '',
+                'splitter' : splitWesternTitle }
         }
 
         try:
