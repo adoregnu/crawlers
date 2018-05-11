@@ -5,7 +5,6 @@ import os
 import sys
 import glob
 import time
-import pprint
 import requests
 import collections
 import traceback
@@ -84,7 +83,7 @@ class ThzCrawler:
         if self._date:
             return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._board.name, self._date, pid)
         else:
-            return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._board.name, pid)
+            return '{0}/{1}/{2}'.format(os.getcwd(), self._board.name, pid)
 
 
     def CreateDir(self, pid):
@@ -162,13 +161,10 @@ class ThzCrawler:
         self.WaitElementLocate(By.ID, 'scrolltop')
 
         imgList = self._chrome.find_elements_by_css_selector('img[id*=aimg_]')
-        td = imgList[0].find_element_by_xpath(".//ancestor::td");
-        search = None
-        if self._board is Board.SensoredJAV :
-            search = re.findall('([0-9/]{10})', td.text, re.ASCII)
-        else: 
-            search = re.findall('([0-9\-]{10})', td.text, re.ASCII)
 
+        td = imgList[0].find_element_by_xpath(".//ancestor::td");
+        patt = '([0-9/]{10})' if self._board is Board.SensoredJAV else '([0-9\-]{10})'
+        search = re.findall(patt, td.text, re.ASCII)
         self._date = search[len(search) - 1].replace('/', '-') if search else None
 
         if not self.CreateDir(pid) and self._stopOnExistingDir:
@@ -188,7 +184,7 @@ class ThzCrawler:
             numRetry += 1
         return True
 
-    def ProcessThreadList(self, items, splitFn):
+    def ProcessThreadList(self, items, splitFn, pidFilter):
         urls = collections.OrderedDict()
         for tbody in items:
             link = tbody.find_element_by_css_selector('a.s.xst')
@@ -200,10 +196,13 @@ class ThzCrawler:
                 em_a = tbody.find_element_by_xpath('tr/th/em/a')
                 pid = '{0}-{1}'.format(em_a.text, title.replace(' ', '_'))
 
+            if pidFilter :
+                p = pid.split('-')
+                if not p[0] in pidFilter:
+                    continue
+
             urls[pid] = (link.get_attribute('href'), title)
             print('pid:[{0}], title:[{1}]'.format(pid, title))
-
-        #pprint.pprint(urls)
 
         num = 0
         for pid, href in urls.items():
@@ -226,8 +225,7 @@ class ThzCrawler:
             #next page link
             nextLink = self.WaitElementLocate(By.LINK_TEXT, '下一页').get_attribute('href')
             elms = self._chrome.find_elements_by_css_selector('tbody[id*=normalthread_]')
-            #pprint.pprint(xlist)
-            self.ProcessThreadList(elms, title['splitter'])
+            self.ProcessThreadList(elms, title['splitter'], title.get('pidFilter'))
 
             pageNum += 1
             print('')
@@ -261,7 +259,8 @@ class ThzCrawler:
             Board.SensoredJAV : { 
                 'name' : '亚洲有碼原創', 
                 'href' : '',
-                'splitter' : splitSensoredTitle },
+                'splitter' : splitSensoredTitle},
+#                'pidFilter' : ('abp', 'ssni', 'snis', 'ofje', 'adn', 'ipz', 'ipx', 'pppd')},
             Board.UnsensoredJAV : {
                 'name' : '亚洲無碼原創',
                 'href' : '',
