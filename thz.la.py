@@ -1,5 +1,6 @@
 #!/usr/local/bin/python3
 ### thz.la.py
+
 import re
 import os
 import sys
@@ -26,7 +27,6 @@ class ThzCrawler(chrome.Chrome):
     BASE_URL = 'http://taohuabt.cc/'
     MAX_PAGE = 1
     MAX_RETRY = 5
-    DOWNLOAD_TIMEOUT_SEC = 5.0
 
     _board = '.'
     _date = None
@@ -38,10 +38,11 @@ class ThzCrawler(chrome.Chrome):
 
     def GetPath(self, pid):
         if self._date:
-            return '{0}/{1}/{2}/{3}'.format(os.getcwd(), self._board.name, self._date, pid)
+            return '{0}/Thz.La/{1}/{2}/{3}'.format(
+                    os.getcwd(), self._board.name, self._date, pid)
         else:
-            return '{0}/{1}/{2}'.format(os.getcwd(), self._board.name, pid)
-
+            return '{0}/Thz.La/{1}/{2}'.format(
+                    os.getcwd(), self._board.name, pid)
 
     def SaveImages(self, pid, imgs):
         num = 0
@@ -67,16 +68,15 @@ class ThzCrawler(chrome.Chrome):
                 try:
                     res = requests.get(url, timeout=10)
                     with open(path, 'wb') as f:
-                       f.write(res.content)
+                        f.write(res.content)
                     break
-                except :
-                    print('timeout!! retry{0} to save image :{1}'.format(numRetry, url))
+                except:
+                    print('timeout!! retry{0} to save image :{1}'.format(numRetry, url)) 
+            numRetry += 1
 
-                numRetry += 1
+        if numRetry < self.MAX_RETRY:
+            print(path + ' saved')
 
-            if numRetry < self.MAX_RETRY:
-                print(path + ' saved')
-    
     def SaveTorrentFile(self, pid, tlink):
         #print(tlink.text, tlink.get_attribute('href'))
         self._chrome.execute_script('arguments[0].click();', tlink)
@@ -95,11 +95,7 @@ class ThzCrawler(chrome.Chrome):
         self.SetDownloadDir(targetPath)
         dnlink.click()
 
-        evt = chrome.DownloadCompleteEvent(targetPath)
-        elapsed = 0.0
-        while not evt.is_complete() and self.DOWNLOAD_TIMEOUT_SEC > elapsed:
-            time.sleep(0.2)
-            elapsed += 0.2
+        chrome.DownloadCompleteEvent(targetPath).WaitComplete()
 
     def ProcessOnePage(self, pid, href):
 
@@ -110,9 +106,16 @@ class ThzCrawler(chrome.Chrome):
         imgList = self._chrome.find_elements_by_css_selector('img[id*=aimg_]')
 
         td = imgList[0].find_element_by_xpath(".//ancestor::td");
-        patt = '([0-9/]{10})' if self._board is Board.SensoredJAV else '([0-9\-]{10})'
+        if self._board is Board.SensoredJAV
+            patt = '([0-9/]{10})'
+        else:
+            patt = '([0-9\-]{10})'
+
         search = re.findall(patt, td.text, re.ASCII)
-        self._date = search[len(search) - 1].replace('/', '-') if search else None
+        if search:
+            self._date = search[len(search) - 1].replace('/', '-')
+        else:
+            self._date = None
 
         if not self.CreateDir(pid) and self._stopOnExistingDir:
             return False

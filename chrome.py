@@ -14,6 +14,7 @@ from watchdog.events import FileSystemEventHandler
 
 class DownloadCompleteEvent(FileSystemEventHandler):
     _complete = False
+    DOWNLOAD_TIMEOUT_SEC = 5.0
 
     def __init__(self, target):
         observer = Observer()
@@ -24,8 +25,16 @@ class DownloadCompleteEvent(FileSystemEventHandler):
         print(event.dest_path + ' downloaded')
         self._complete = True 
         
-    def Complete(self):
-        return self._complete
+    def WaitComplete(self):
+        elapsed = 0.0
+        while not self._complete and self.DOWNLOAD_TIMEOUT_SEC > elapsed:
+            time.sleep(0.2)
+            elapsed += 0.2
+
+        if elapsed >= self.DOWNLOAD_TIMEOUT_SEC:
+            return False
+        else:
+            return True
 
 class Chrome:
 
