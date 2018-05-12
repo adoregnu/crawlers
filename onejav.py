@@ -66,14 +66,11 @@ class OnejavCrawler(chrome.Chrome):
         articles = self._chrome.find_elements_by_class_name('card')
         for article in articles:
             image = article.find_element_by_class_name('image')
-            #print('cover:', image.get_attribute('src'))
             pid = article.find_element_by_xpath('div/div/div/div/h5/a')
             size = article.find_element_by_xpath('div/div/div/div/h5/span')
-            #print('pid: ', pid.text)
             self.SaveImage(pid.text, image.get_attribute('src'))
 
             torrent = article.find_element_by_xpath('div/div/div/div/a')
-            #print(pid.get_attribute('href'))
             self.DownloadTorrent(pid.text, torrent.get_attribute('href'), size.text)
 
         try:
@@ -98,15 +95,14 @@ class OnejavCrawler(chrome.Chrome):
     def Start(self):
         self._chrome.get(self.BASE_URL)
 
-        #urls = collections.OrderedDict()
-        url = {}
         urls = []
         overviewList = self._chrome.find_elements_by_class_name('overview')
         for item in overviewList:
-            #print(item.get_attribute('href'))
+            url = {}
             url['href'] = item.get_attribute('href')
             url['date'] = item.find_element_by_xpath('..').get_attribute('data-date')
             urls.append(url)
+            print(url)
 
         if not os.path.exists(self.GetPath()) and not self.CreateDir(''):
             print('could not create dir!')
@@ -115,7 +111,6 @@ class OnejavCrawler(chrome.Chrome):
         self.SetDownloadDir(self.GetPath())
         for url in urls:
             self.ProcessOverview(url)
-            break
 
 if __name__ == '__main__':
     onejav = OnejavCrawler()
