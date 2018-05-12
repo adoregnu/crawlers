@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/local/bin/python3
 ### thz.la.py
 import re
 import os
@@ -9,75 +9,32 @@ import requests
 import collections
 import traceback
 
-from enum import Enum
+import chrome 
 
-from selenium import webdriver
+from enum import Enum
 from selenium.webdriver.common.by import By
 # available since 2.4.0
-from selenium.webdriver.support.ui import WebDriverWait
-# available since 2.26.0
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 
 class Board(Enum):
     SensoredJAV       = 1
     UnsensoredJAV     = 2
     UnsensoredWestern = 3
 
-class DownloadCompleteEvent(FileSystemEventHandler):
-    _complete = False
-    def on_moved(self, event):
-        print(event.dest_path + ' downloaded')
-        self._complete = True
-
-    def is_complete(self):
-        return self._complete
-
-class ThzCrawler:
+class ThzCrawler(chrome.Chrome):
     BASE_URL = 'http://taohuabt.cc/'
     MAX_PAGE = 1
     MAX_RETRY = 5
     DOWNLOAD_TIMEOUT_SEC = 5.0
 
     _board = '.'
-    _chrome = None
     _date = None
-    _printOnly = False # do not download actual file
+
     _stopOnFirstArticle = False # process only one article per each page
     _stopOnExistingDir = True # stop download if it's already exists
-
-    def __init__(self):
-        options = webdriver.ChromeOptions()
-        options.add_argument('headless')
-        options.add_argument('window-size=1920x1080')
-        options.add_argument('blink-settings=imagesEnabled=false')
-        options.add_argument('disable-popup-blocking')
-
-        self._chrome = webdriver.Chrome('chromedriver', chrome_options=options,
-                service_args=['--verbose', '--log-path=./chromedriver.log'])
-
-    def SetDownloadDir(self, path):
-        #add missing support for chrome "send_command"  to selenium webdriver
-        self._chrome.command_executor._commands["send_command"] = ("POST", '/session/$sessionId/chromium/send_command')
-
-        params = {
-            'cmd': 'Page.setDownloadBehavior',
-            'params': {'behavior': 'allow', 'downloadPath': path}
-        }
-        self._chrome.execute("send_command", params)
-
-    def WaitElementLocate(self, by, locate):
-        return WebDriverWait(self._chrome, 10).until(
-                EC.presence_of_element_located((by, locate))
-        )
-
-    def WaitElementClickable(self, by, locate):
-        return  WebDriverWait(self._chrome, 10).until(
-                EC.element_to_be_clickable((by, locate))
-        )
+    _searchOnly = False
+    _printOnly = False # do not download actual file
 
     def GetPath(self, pid):
         if self._date:
@@ -86,19 +43,13 @@ class ThzCrawler:
             return '{0}/{1}/{2}'.format(os.getcwd(), self._board.name, pid)
 
 
-    def CreateDir(self, pid):
-        path = self.GetPath(pid)
-        try: 
-            os.makedirs(path)
-        except OSError:
-            return False
-        return True
-
     def SaveImages(self, pid, imgs):
         num = 0
         for img in imgs:
             url = img.get_attribute('file')
             #print(url)
+            if not url: continue
+
             if 'thzimg' not in url and 'thzpic' not in url:
                 continue
 
@@ -114,7 +65,7 @@ class ThzCrawler:
             numRetry = 0 
             while numRetry < self.MAX_RETRY:
                 try:
-                    res = requests.get(url)
+                    res = requests.get(url, timeout=10)
                     with open(path, 'wb') as f:
                        f.write(res.content)
                     break
@@ -144,11 +95,7 @@ class ThzCrawler:
         self.SetDownloadDir(targetPath)
         dnlink.click()
 
-        observer = Observer()
-        evt = DownloadCompleteEvent()
-        observer.schedule(evt, path = targetPath)
-        observer.start()
-
+        evt = chrome.DownloadCompleteEvent(targetPath)
         elapsed = 0.0
         while not evt.is_complete() and self.DOWNLOAD_TIMEOUT_SEC > elapsed:
             time.sleep(0.2)
@@ -204,6 +151,12 @@ class ThzCrawler:
             urls[pid] = (link.get_attribute('href'), title)
             print('pid:[{0}], title:[{1}]'.format(pid, title))
 
+        if self._searchOnly:
+            return
+
+        if len(urls) == 0 and pidFilter:
+            print('pid {0} does not exist in this page.', pidFilter)
+
         num = 0
         for pid, href in urls.items():
 
@@ -230,11 +183,6 @@ class ThzCrawler:
             pageNum += 1
             print('')
 
-    def Exit(self, msg = ''):
-        print(msg)
-        self._chrome.quit()
-        sys.exit(0)
-
     def Start(self):
         self._chrome.get(self.BASE_URL + 'forum.php')
 
@@ -259,32 +207,33 @@ class ThzCrawler:
             Board.SensoredJAV : { 
                 'name' : '亚洲有碼原創', 
                 'href' : '',
-                'splitter' : splitSensoredTitle},
-#                'pidFilter' : ('abp', 'ssni', 'snis', 'ofje', 'adn', 'ipz', 'ipx', 'pppd')},
-            Board.UnsensoredJAV : {
-                'name' : '亚洲無碼原創',
-                'href' : '',
-                'splitter' : splitUnsensoredTitle }, 
-            Board.UnsensoredWestern : { 
-                'name' : '欧美無碼', 
-                'href' : '',
-                'splitter' : splitWesternTitle }
+                'splitter' : splitSensoredTitle}
+#                'pidFilter' : ('abp', 'ssni', 'ofje', 'adn', 'ipx', 'pppd')},
+#            Board.UnsensoredJAV : {
+#                'name' : '亚洲無碼原創',
+#                'href' : '',
+#                'splitter' : splitUnsensoredTitle }, 
+#            Board.UnsensoredWestern : { 
+#                'name' : '欧美無碼', 
+#                'href' : '',
+#                'splitter' : splitWesternTitle }
         }
 
-        try:
-            for board, title in boardList.items():
-                name = self._chrome.find_element_by_link_text(title['name'])
-                title['href'] = name.get_attribute('href')
+        for board, title in boardList.items():
+            name = self._chrome.find_element_by_link_text(title['name'])
+            title['href'] = name.get_attribute('href')
 
-            for board, title in boardList.items():
-                self.ProcessBoard(board, title)
-        except:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-            traceback.print_exception(exc_type, exc_value, exc_tb)
-        finally:
-            self.Exit();
+        for board, title in boardList.items():
+            self.ProcessBoard(board, title)
 
 if __name__ == '__main__':
+    thz = None
+    try:
+        thz = ThzCrawler()
+        thz.Start()
+    except:
+        exc_type, exc_value, exc_tb = sys.exc_info()
+        traceback.print_exception(exc_type, exc_value, exc_tb)
+    finally:
+        thz.Exit();
 
-    thz = ThzCrawler()
-    thz.Start()
