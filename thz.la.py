@@ -5,7 +5,6 @@ import re
 import os
 import sys
 import glob
-import time
 import requests
 import collections
 import traceback
@@ -25,14 +24,14 @@ class Board(Enum):
 
 class ThzCrawler(chrome.Chrome):
     BASE_URL = 'http://taohuabt.cc/'
-    MAX_PAGE = 1
+    MAX_PAGE = 2
     MAX_RETRY = 5
 
     _board = '.'
     _date = None
 
     _stopOnFirstArticle = False # process only one article per each page
-    _stopOnExistingDir = True # stop download if it's already exists
+    _stopOnExistingDir = False # stop download if it's already exists
     _searchOnly = False
     _printOnly = False # do not download actual file
 
@@ -49,9 +48,7 @@ class ThzCrawler(chrome.Chrome):
         for img in imgs:
             url = img.get_attribute('file')
             #print(url)
-            if not url: continue
-
-            if 'thzimg' not in url and 'thzpic' not in url:
+            if not url:
                 continue
 
             path = '{0}/{1}_{2}{3}'.format(
@@ -73,9 +70,8 @@ class ThzCrawler(chrome.Chrome):
                 except:
                     print('timeout!! retry{0} to save image :{1}'.format(numRetry, url)) 
             numRetry += 1
-
-        if numRetry < self.MAX_RETRY:
-            print(path + ' saved')
+            if numRetry < self.MAX_RETRY:
+                print(path + ' saved')
 
     def SaveTorrentFile(self, pid, tlink):
         #print(tlink.text, tlink.get_attribute('href'))
@@ -106,7 +102,7 @@ class ThzCrawler(chrome.Chrome):
         imgList = self._chrome.find_elements_by_css_selector('img[id*=aimg_]')
 
         td = imgList[0].find_element_by_xpath(".//ancestor::td");
-        if self._board is Board.SensoredJAV
+        if self._board is Board.SensoredJAV:
             patt = '([0-9/]{10})'
         else:
             patt = '([0-9\-]{10})'
@@ -140,7 +136,8 @@ class ThzCrawler(chrome.Chrome):
             link = tbody.find_element_by_css_selector('a.s.xst')
             pid, title = splitFn(link.text) 
             if not pid or not title:
-                break
+                print('failed parse title: skip!', link.text)
+                continue
 
             if self._board is Board.UnsensoredWestern:
                 em_a = tbody.find_element_by_xpath('tr/th/em/a')
@@ -190,8 +187,11 @@ class ThzCrawler(chrome.Chrome):
         self._chrome.get(self.BASE_URL + 'forum.php')
 
         def splitSensoredTitle(text):
-            search = re.search('\[(.*)\](.*)', text)
-            return search.group(1), search.group(2)
+            match = re.search('\[(.*)\](.*)', text)
+            if match:
+                return match.group(1), match.group(2)
+            else:
+                return None, None
 
         def splitUnsensoredTitle(text):
             #2018-05-03 050318_681-1pon 下着が最高に似合うカテキ-佐々木ゆき
@@ -199,11 +199,17 @@ class ThzCrawler(chrome.Chrome):
             #2018-05-04 [女体のしんぴ] nyoshin_n1677 めい
             #'?' after '*' means non-greedy matching
             search = re.search('(.*?) ([\w\-].*?) (.*)', text, re.ASCII)
-            return search.group(2), search.group(3)
+            if search:
+                return search.group(2), search.group(3)
+            else:
+                return None, None
 
         def splitWesternTitle(text):
             search = re.search('(.*?) (.*)', text, re.ASCII)
-            return search.group(1), search.group(2)
+            if search:
+                return search.group(1), search.group(2)
+            else:
+                return None, None
 
         #test  = { Board.SensoredJAV,  'test' }
         boardList = { 

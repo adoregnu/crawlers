@@ -1,6 +1,7 @@
 #!/usr/local/bin/python3
 import os
 import sys
+import time
 
 from selenium import webdriver
 # available since 2.4.0
