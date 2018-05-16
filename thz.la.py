@@ -31,7 +31,7 @@ class ThzCrawler(chrome.Chrome):
     _date = None
 
     _stopOnFirstArticle = False # process only one article per each page
-    _stopOnExistingDir = False # stop download if it's already exists
+    _skipExistingDir = True
     _searchOnly = False
     _printOnly = False # do not download actual file
 
@@ -68,8 +68,11 @@ class ThzCrawler(chrome.Chrome):
                         f.write(res.content)
                     break
                 except:
-                    print('timeout!! retry{0} to save image :{1}'.format(numRetry, url)) 
-            numRetry += 1
+                    print(sys.exc_info())
+                    print(' retry{0} to save image :{1}'.format(numRetry, url)) 
+
+                numRetry += 1
+
             if numRetry < self.MAX_RETRY:
                 print(path + ' saved')
 
@@ -96,6 +99,7 @@ class ThzCrawler(chrome.Chrome):
     def ProcessOnePage(self, pid, href):
 
         print('Processing [{0}], title:[{1}]'.format(pid, href[1]))
+
         self._chrome.get(href[0])
         self.WaitElementLocate(By.ID, 'scrolltop')
 
@@ -113,8 +117,8 @@ class ThzCrawler(chrome.Chrome):
         else:
             self._date = None
 
-        if not self.CreateDir(pid) and self._stopOnExistingDir:
-            return False
+        if not self.CreateDir(pid) and self._skipExistingDir:
+            return True
 
         self.SaveImages(pid, imgList)
 
@@ -159,7 +163,6 @@ class ThzCrawler(chrome.Chrome):
 
         num = 0
         for pid, href in urls.items():
-
             if not self.ProcessOnePage(pid, href):
                 print('latest update, skip {0}'.format(self._board.name))
                 break
@@ -216,12 +219,12 @@ class ThzCrawler(chrome.Chrome):
             Board.SensoredJAV : { 
                 'name' : '亚洲有碼原創', 
                 'href' : '',
-                'splitter' : splitSensoredTitle}
+                'splitter' : splitSensoredTitle},
 #                'pidFilter' : ('abp', 'ssni', 'ofje', 'adn', 'ipx', 'pppd')},
-#            Board.UnsensoredJAV : {
-#                'name' : '亚洲無碼原創',
-#                'href' : '',
-#                'splitter' : splitUnsensoredTitle }, 
+            Board.UnsensoredJAV : {
+                'name' : '亚洲無碼原創',
+                'href' : '',
+                'splitter' : splitUnsensoredTitle }, 
 #            Board.UnsensoredWestern : { 
 #                'name' : '欧美無碼', 
 #                'href' : '',

@@ -87,10 +87,17 @@ class OnejavCrawler(chrome.Chrome):
 
         nextPage = url['href']
         pageNum = 1
-        while nextPage:
+        retry = 0
+        while nextPage and retry < 3:
             print('page {0} : {1}'.format(pageNum, nextPage))
-            nextPage = self.ProcessPage(nextPage)
-            pageNum += 1; 
+            try:
+                nextPage = self.ProcessPage(nextPage)
+                pageNum += 1; 
+            except TimeoutException:
+                retry += 1
+
+        if retry >= 3:
+            print('failed to load page:', nextPage)
 
     def Start(self):
         self._chrome.get(self.BASE_URL)
