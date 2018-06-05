@@ -24,7 +24,7 @@ class Board(Enum):
 
 class ThzCrawler(chrome.Chrome):
     BASE_URL = 'http://taohuabt.cc/'
-    MAX_PAGE = 2
+    MAX_PAGE = 3
     MAX_RETRY = 5
 
     _board = '.'
@@ -114,7 +114,7 @@ class ThzCrawler(chrome.Chrome):
         search = re.findall(patt, td.text, re.ASCII)
         if search:
             self._date = search[len(search) - 1].replace('/', '-')
-        else:
+       else:
             self._date = None
 
         if not self.CreateDir(pid) and self._skipExistingDir:
@@ -232,7 +232,8 @@ class ThzCrawler(chrome.Chrome):
         }
 
         for board, title in boardList.items():
-            name = self._chrome.find_element_by_link_text(title['name'])
+            #name = self._chrome.find_element_by_link_text(title['name'])
+            name = self.WaitElementClickable(By.PARTIAL_LINK_TEXT, title['name'])
             title['href'] = name.get_attribute('href')
 
         for board, title in boardList.items():
