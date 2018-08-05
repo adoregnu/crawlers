@@ -1,0 +1,178 @@
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title> Torrr </title>
+<script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+<script type="text/javascript">
+	$(document).on('click', '#addtorrent', function() {
+		var result = $(this).parent().find('#numdownloaded')
+		var num = $(this).data('id')
+		//alert(num)
+		$.ajax({
+			type: "POST",
+			urls: "/{{site}}",
+			data: {
+				'productId' : num,
+				'csrfmiddlewaretoken': '{{ csrf_token }}'
+			},
+			dataType: "json",
+			success: function(response) {
+				if (response.status == 'fail')
+					alert(response.message);
+				else
+					result.text(response.message);
+			},
+			error: function(request, status, error) {
+				alert(status);
+			}
+		});
+	});
+
+	$(document).on('change', '#production', function() {
+		//alert(this.value);
+		location.href = '/{{site}}/{{board}}/' + this.value
+	});
+
+	$(document).on('click', '#nextP', function() {
+		var nextElement = $('#production > option:selected').next('option');
+		if (nextElement.length > 0) {
+			var next = $('#production > option:selected')
+				.removeAttr('selected').next('option');
+			location.href = '/{{site}}/{{board}}/' + next.val();
+		}
+	});
+
+	$(document).on('click', '#prevP', function() {
+		var nextElement = $('#production > option:selected').prev('option');
+		if (nextElement.length > 0) {
+			var prev = $('#production > option:selected')
+				.removeAttr('selected').prev('option');
+			location.href = '/{{site}}/{{board}}/' + prev.val();
+		}
+	});
+
+
+	$(document).ready(function(){
+			$('.screenshot').click(function(){
+				$('#modal-content').html('<img src=' + $(this).attr('src') +' class="center-align">');
+				$('#modal-background').fadeIn();
+			 });
+
+			$('#modal-background').click(function(){
+				$('#modal-background').fadeOut();
+			 });
+	});
+	</script>
+
+	<style>
+	.hscroll {
+		overflow-x:auto;
+		white-space:nowrap;
+		width:auto;
+	}
+	.screenshot {
+		max-width: 400px;
+		max-height: 300px;
+		vertical-align:middle;
+		margin:1px
+	}
+	.center-align {
+		display:block;
+       	margin:auto;
+	}
+
+	.button {
+	  text-decoration: none;
+	  background-color: #EEEEEE;
+	  color: #333333;
+	  padding: 2px 6px 2px 6px;
+	  border-top: 1px solid #CCCCCC;
+	  border-right: 1px solid #333333;
+	  border-bottom: 1px solid #333333;
+	  border-left: 1px solid #CCCCCC;
+	}
+
+	ul {
+		list-style:none;
+		padding-left:0px;
+	}
+	#modal-background{
+		overflow-x:auto;
+		width: 100%;
+		height: 100%;
+		background-color: #000000;
+		position: fixed;
+		top: 0; left: 0;
+		display: none;
+		z-index: 99;
+	}
+
+	#modal-content{
+		background-color: #000000;
+		position:absolute;
+		left:0; right:0; /* horizontal alignment for .center-align*/
+		/*top:50%; transform:translateY(-50%);*/ /* vertical aligment */
+		z-index: 100;
+	}
+</style>
+</head>
+<body>
+{% if avList %}
+<div id='modal-background'>
+	<div id='modal-content'></div>
+</div>
+<div>
+	{% for s in siteList %} {% if s.id != site %}
+	<a href="/{{s.id}}/{{board}}">{{s.name}}</a> &nbsp;
+	{% endif %} {% endfor %}
+	<Br>
+	{% for bname, bid in boardList.items %} {% if bid != board %}
+	<a href="/{{site}}/{{bid}}">{{bname}}</a> &nbsp;
+	{% endif %} {% endfor %}
+	<button type="button" id="prevP">PREV</button>&nbsp;
+	<select id="production">
+	<option value="0">All</option>
+	{% for st in studioList %}
+	<option value="{{st.id}}" {% if studio == st.id %}selected="selected"{% endif %}>{{st.nameEn}}</option>
+	{% endfor %}
+	</select>&nbsp;
+	<button type="button" id="nextP">NEXT</button>
+	<!--
+	qbitorrent server: <input type="text" name="qbitorrentServer">
+	Login id <input type="text" name="qbLoginId" width="100px">
+	Password <input type="password" name="qbPassword" width="100px">
+	-->
+</div>
+<ul>
+{% for av in avList %}
+<li>
+	<div style="padding:2px; border:1px solid gray">
+		<button type='button' aria-hidden="true" id="addtorrent" data-id="{{av.id}}">
+		{{av.product}}
+		</button> 
+		<a href="/{{site}}/{{board}}/{{av.studio.id}}">{{av.studio.nameEn}}</a>
+		Downloaded:<span id="numdownloaded">{{av.numDownloaded}}</span>&nbsp;
+		Upload time: {{av.uploadedTime|date:"Y-m-d H:i:s"}}
+		Title : {{av.title}} 
+		<div class="hscroll">
+		{% for img in av.Images %}<img src="/{{img}}" class="screenshot">{% endfor %}
+		</div>
+	</div>
+	<br/>
+</li>
+{% endfor %}
+</ul>
+<div style="display: flex; align-items: center; justify-content: center">
+{% for i in pageList %}
+{% if i == page %}
+	{{i}}&nbsp;
+{% else %}
+	<a href="/{{site}}/{{board}}/{{studio}}/{{i}}" class="button">{{i}}</a>&nbsp;
+{% endif %}
+{% endfor %}
+</div>
+{% else %}
+<p>no AVs are available.</p>
+{% endif %}
+</body>
+</html>

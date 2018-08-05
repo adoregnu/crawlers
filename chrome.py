@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import glob
 
 from selenium import webdriver
 # available since 2.4.0
@@ -14,6 +15,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 class DownloadCompleteEvent(FileSystemEventHandler):
+    _destPath = None
     _complete = False
     DOWNLOAD_TIMEOUT_SEC = 5.0
 
@@ -25,7 +27,11 @@ class DownloadCompleteEvent(FileSystemEventHandler):
     def on_moved(self, event):
         print(event.dest_path + ' downloaded')
         self._complete = True 
+        self._destPath = event.dest_path
         
+    def GetDestPath(self):
+        return self._destpath
+
     def WaitComplete(self):
         elapsed = 0.0
         while not self._complete and self.DOWNLOAD_TIMEOUT_SEC > elapsed:
@@ -53,16 +59,28 @@ class Chrome:
             chrome_options=options,
             service_args=['--verbose', '--log-path=./chromedriver.log']
         ) 
-    
-    def GetPath(self, pid):
-        return None
-        
-    def CreateDir(self, pid):
-        path = self.GetPath(pid)
+
+    def MkDir(self, path):
         try: 
             os.makedirs(path)
         except OSError:
+            #print('{} : already exists'.format(path))
             return False
+        return True
+
+    def GetPath(self):
+        return None
+        
+    def CreateDir(self):
+        path = self.GetPath()
+        try: 
+            os.makedirs(path)
+        except OSError:
+            if not glob.glob(path + '/*.torrent'):
+                print('no torrent file!!')
+                return True
+            else: 
+                return False
         return True
 
     def SetDownloadDir(self, path):
